@@ -1,0 +1,35 @@
+approach_pick:
+  shoulder_pan: 97.73
+  shoulder_lift: 131.22
+  elbow_flex: 154.42
+  wrist_flex: 26.63
+  wrist_roll: 253.92
+  gripper: 126.56
+pick:
+  shoulder_pan: 95.8
+  shoulder_lift: 148.54
+  elbow_flex: 148.01
+  wrist_flex: 14.77
+  wrist_roll: 254.0
+  gripper: 126.56
+approach_place:
+  shoulder_pan: 145.81
+  shoulder_lift: 136.67
+  elbow_flex: 154.25
+  wrist_flex: 22.85
+  wrist_roll: 254.0
+  gripper: 126.56
+place:
+  shoulder_pan: 145.9
+  shoulder_lift: 141.15
+  elbow_flex: 154.25
+  wrist_flex: 22.85
+  wrist_roll: 254.0
+  gripper: 126.56
+python pick_and_place.py:
+  shoulder_pan: 98.88
+  shoulder_lift: 9.58
+  elbow_flex: 193.89
+  wrist_flex: 51.94
+  wrist_roll: 261.12
+  gripper: 41.66

@@ -1,0 +1,80 @@
+# RoboLab AI - SO-ARM101 Joint Configuration
+# FT SCServo Debug v1.9.8.5 orqali qo'lda kalibrlangan TICK qiymatlari
+# (bu - kalibrlashning yagona haqiqiy manbai, gradus shulardan
+# joint_controller.py da avtomatik hisoblanadi).
+#
+# MUHIM: min_tick/max_tick 0-4095 oralig'ida bo'lishi shart emas.
+# Agar joint'ning haqiqiy mexanik diapazoni tick-hisoblagichning
+# 0/4095 chegarasidan "aylanib o'tsa" (masalan FT SCServo Debug'da
+# max qiymat 4095'dan oshib, 0'dan qayta boshlab ko'rsatilsa),
+# max_tick ni 4096 + (ko'rsatilgan qiymat) sifatida yozing.
+# Masalan: agar max "315" ko'rsatilsa va bu 0'dan aylanib o'tgan bo'lsa,
+# max_tick: 4411 (ya'ni 4096 + 315) deb yoziladi.
+
+port: "COM5"                # Windows COM port (Device Manager'dan tasdiqlangan)
+baudrate: 1000000           # STS-3215 default baudrate
+
+joints:
+  shoulder_pan:
+    id: 1
+    min_tick: 810
+    max_tick: 3200
+    home_tick: 2048           # markaziy holat
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-210.06 grad, home=108.81 grad
+
+  shoulder_lift:
+    id: 2
+    min_tick: 2046             # tasdiqlangan: bu servoning tabiiy "osilib turadigan"
+                                 # (gravitatsiyaga eng qulay) chegarasi
+    max_tick: 4411              # WRAPAROUND: FT SCServo Debug'da 315 ko'rsatilgan,
+                                 # ya'ni haqiqiy qiymat 4096+315=4411
+    home_tick: 2046             # min_tick bilan bir xil - tabiiy, kam kuch talab
+                                 # qiladigan xavfsiz dam olish holati
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-207.86 grad, home=0.0 grad
+
+  elbow_flex:
+    id: 3
+    min_tick: 420
+    max_tick: 2616               # = manipulyator TO'LIQ YIG'ILGAN holati
+                                   # (parking/compact pose uchun referens)
+    home_tick: 2048
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-193.01 grad, home=143.09 grad
+
+  wrist_flex:
+    id: 4
+    min_tick: 500
+    max_tick: 2795
+    home_tick: 2048
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-201.71 grad, home=136.05 grad
+
+  wrist_roll:
+    id: 5
+    min_tick: 162
+    max_tick: 3985
+    home_tick: 2048
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-336.01 grad, home=165.76 grad
+
+  gripper:
+    id: 6
+    min_tick: 2052               # YOPIQ holat (tasdiqlangan)
+    max_tick: 3500                # OCHIQ holat
+    home_tick: 3500                # xavfsizlik: home doim OCHIQ bo'lishi kerak
+    direction: 1
+    # Hisoblangan (avtomatik): diapazon 0-127.27 grad, home=127.27 grad (ochiq)
+
+safety:
+  max_speed_deg_per_s: 40    # VAQTINCHALIK pasaytirildi (edi: 60) - quvvat bloki 1.5A,
+                              # yangi 5A+ blok kelgunicha ehtiyot chorasi
+  torque_limit_percent: 35   # VAQTINCHALIK pasaytirildi (edi: 50) - cho'qqi tok
+                              # talabini kamaytirish uchun
+
+# ESLATMA (kelajak uchun): elbow_flex.max_tick (2616) manipulyatorning
+# to'liq yig'ilgan (parking/compact) holatini bildiradi. Bu qiymat
+# hozircha ishlatilmaydi, lekin keyinchalik "parking_pose" preset
+# sifatida barcha jointlar uchun shunga o'xshash to'plam yaratilganda
+# foydali bo'ladi.
