@@ -78,6 +78,10 @@ def main():
                          help="Markaziy pan qiymati (default: approach_pick pose'idan olinadi)")
     parser.add_argument("--center-lift", type=float, default=None,
                          help="Markaziy lift qiymati (default: approach_pick pose'idan olinadi)")
+    parser.add_argument("--base-pose", choices=["approach_pick", "pick"], default="approach_pick",
+                         help="Qaysi balandlikda skanerlash: 'approach_pick' (xavfsizroq, yuqori) "
+                              "yoki 'pick' (to'g'ridan-to'g'ri ushlash balandligi - parallaks xatosini "
+                              "kamaytiradi, lekin span'ni KICHIK tuting - to'qnashuv xavfi bor)")
     args = parser.parse_args()
 
     poses = load_poses()
@@ -85,7 +89,7 @@ def main():
         print("XATO: avval 'approach_pick' pozitsiyasini record_pose.py orqali yozing.")
         return
 
-    template = poses["approach_pick"]
+    template = poses[args.base_pose]
     center_pan = args.center_pan if args.center_pan is not None else template["shoulder_pan"]
     center_lift = args.center_lift if args.center_lift is not None else template["shoulder_lift"]
 
@@ -149,13 +153,35 @@ def main():
         U, V = pts[:, 0], pts[:, 1]
         SP, SL = pts[:, 2], pts[:, 3]
         A_design = np.column_stack([U, V, np.ones_like(U)])
+
+        # 1-bosqich: dastlabki (xom) fit - barcha nuqtalar bilan
         coef_pan, _, _, _ = np.linalg.lstsq(A_design, SP, rcond=None)
         coef_lift, _, _, _ = np.linalg.lstsq(A_design, SL, rcond=None)
+        resid_pan = np.abs(A_design @ coef_pan - SP)
+        resid_lift = np.abs(A_design @ coef_lift - SL)
+        resid_total = resid_pan + resid_lift
 
-        pred_pan = A_design @ coef_pan
-        pred_lift = A_design @ coef_lift
-        err_pan = np.abs(pred_pan - SP).max()
-        err_lift = np.abs(pred_lift - SL).max()
+        # 2-bosqich: eng katta xatoli nuqtalarni (chalg'ituvchi/noto'g'ri
+        # aniqlangan piksellarni) chiqarib tashlab, qayta hisoblash
+        threshold = np.percentile(resid_total, 80)  # eng yomon ~20% chiqariladi
+        keep_mask = resid_total <= max(threshold, 1e-6)
+        n_removed = int((~keep_mask).sum())
+
+        if keep_mask.sum() >= 3:
+            A_clean = A_design[keep_mask]
+            SP_clean = SP[keep_mask]
+            SL_clean = SL[keep_mask]
+            coef_pan, _, _, _ = np.linalg.lstsq(A_clean, SP_clean, rcond=None)
+            coef_lift, _, _, _ = np.linalg.lstsq(A_clean, SL_clean, rcond=None)
+            pred_pan = A_clean @ coef_pan
+            pred_lift = A_clean @ coef_lift
+            err_pan = np.abs(pred_pan - SP_clean).max()
+            err_lift = np.abs(pred_lift - SL_clean).max()
+            print(f"{n_removed} ta chalg'ituvchi nuqta chiqarib tashlandi (jami {len(collected_points)}dan)")
+            SP, SL = SP_clean, SL_clean  # diapazon hisobi uchun
+        else:
+            print("Chalg'ituvchi nuqtalarni ajratib bo'lmadi - xom fit ishlatildi")
+
         print(f"Fit xatosi: pan max={err_pan:.2f} grad, lift max={err_lift:.2f} grad")
 
         calibration = {
@@ -164,6 +190,7 @@ def main():
             "num_points": len(collected_points),
             "pan_deg_range": [float(SP.min()), float(SP.max())],
             "lift_deg_range": [float(SL.min()), float(SL.max())],
+            "base_pose": args.base_pose,
         }
         with open(CALIBRATION_PATH, "w", encoding="utf-8") as f:
             yaml.dump(calibration, f)
