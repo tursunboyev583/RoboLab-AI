@@ -50,27 +50,29 @@ class Camera:
         self.cap.release()
 
 
-# Qizil rang uchun ikkita HSV oralig'i (qizil rang HSV doirasining ham
-# boshida, ham oxirida joylashadi, shuning uchun ikkita diapazon kerak)
+# Qizil rang - GRIPPER BELGISI uchun (kalibrlashda ishlatiladi)
 RED_HSV_LOWER_1 = np.array([0, 120, 70])
 RED_HSV_UPPER_1 = np.array([10, 255, 255])
 RED_HSV_LOWER_2 = np.array([170, 120, 70])
 RED_HSV_UPPER_2 = np.array([180, 255, 255])
 
+# Ko'k rang - USHLANADIGAN PREDMET uchun (pick&place'da ishlatiladi)
+# MUHIM: gripper belgisi bilan bir xil rang ISHLATMANG - ikkalasi bir vaqtda
+# kadrda bo'lganda dastur qaysi biri "nishon" ekanini adashtirib qo'yishi mumkin.
+BLUE_HSV_LOWER = np.array([100, 120, 70])
+BLUE_HSV_UPPER = np.array([130, 255, 255])
+
 MIN_CONTOUR_AREA = 300  # piksel - bundan kichik dog'lar shovqin deb hisoblanadi
 
 
-def detect_red_object(frame):
-    """
-    Kadrdan eng katta qizil predmetni topadi.
-    Qaytaradi: (topildimi: bool, (u, v): markaz piksel koordinatasi, mask: vizualizatsiya uchun)
-    """
+def _detect_color(frame, lower_ranges):
+    """Berilgan HSV oralig'(lar)i bo'yicha eng katta dog'ni topadi."""
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mask1 = cv2.inRange(hsv, RED_HSV_LOWER_1, RED_HSV_UPPER_1)
-    mask2 = cv2.inRange(hsv, RED_HSV_LOWER_2, RED_HSV_UPPER_2)
-    mask = cv2.bitwise_or(mask1, mask2)
+    mask = None
+    for lower, upper in lower_ranges:
+        m = cv2.inRange(hsv, lower, upper)
+        mask = m if mask is None else cv2.bitwise_or(mask, m)
 
-    # Kichik shovqinlarni tozalash
     kernel = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -90,3 +92,13 @@ def detect_red_object(frame):
     u = int(M["m10"] / M["m00"])
     v = int(M["m01"] / M["m00"])
     return True, (u, v), mask
+
+
+def detect_red_object(frame):
+    """GRIPPER belgisini (qizil) topadi - kalibrlash uchun."""
+    return _detect_color(frame, [(RED_HSV_LOWER_1, RED_HSV_UPPER_1), (RED_HSV_LOWER_2, RED_HSV_UPPER_2)])
+
+
+def detect_blue_object(frame):
+    """USHLANADIGAN PREDMETNI (ko'k) topadi - pick&place uchun."""
+    return _detect_color(frame, [(BLUE_HSV_LOWER, BLUE_HSV_UPPER)])

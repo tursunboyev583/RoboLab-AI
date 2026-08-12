@@ -58,16 +58,9 @@ def load_poses() -> dict:
 
 def move_to_pose(controller: JointController, pose: dict, exclude: list = None) -> None:
     """Berilgan pose'dagi barcha jointlarni (gripperdan tashqari, agar exclude
-    berilmasa) shu holatga harakatlantiradi."""
-    exclude = exclude or []
-    for joint_name, deg in pose.items():
-        if joint_name in exclude:
-            continue
-        if not controller.check_health(joint_name):
-            raise RuntimeError(f"Safety check failed: {joint_name}")
-        controller.set_position_deg(joint_name, deg, speed=MOVE_SPEED)
-        time.sleep(0.15)  # jointlar orasida qisqa pauza
-    time.sleep(SETTLE_S)
+    berilmasa) shu holatga harakatlantiradi va HAQIQATAN yetib borgunicha kutadi."""
+    controller.move_to(pose, speed=MOVE_SPEED, exclude=exclude, tolerance_deg=3.0, timeout_s=6.0)
+    time.sleep(0.3)
 
 
 def run_pick_and_place(controller: JointController, poses: dict) -> bool:
@@ -111,6 +104,7 @@ def run_pick_and_place(controller: JointController, poses: dict) -> bool:
     logger.info("--- approach_place (ko'tarilish) ---")
     move_to_pose(controller, poses["approach_place"], exclude=[GRIPPER_JOINT])
     go_home(controller)
+    gripper.close()  # yakunda gripper yopiq holatda qoladi (foydalanuvchi tanlovi)
 
     logger.info("=== PICK & PLACE yakunlandi: holding=%s ===", holding)
     return holding
@@ -126,4 +120,4 @@ if __name__ == "__main__":
     except Exception as exc:
         logger.exception("Pick&Place xatoligi: %s", exc)
     finally:
-        controller.disconnect()
+        controller.disconnect(release_torque=False)

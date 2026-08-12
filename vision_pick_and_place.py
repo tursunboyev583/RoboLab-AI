@@ -25,7 +25,7 @@ import cv2
 from joint_controller import JointController
 from home_position import go_home
 from gripper import Gripper, GRIPPER_JOINT
-from camera import Camera, detect_red_object
+from camera import Camera, detect_blue_object
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,15 +74,10 @@ def build_vision_pose(base_pose: dict, pan: float, lift: float) -> dict:
 
 
 def move_to_pose(controller: JointController, pose: dict, exclude=None) -> None:
-    exclude = exclude or []
-    for joint_name, deg in pose.items():
-        if joint_name in exclude:
-            continue
-        if not controller.check_health(joint_name):
-            raise RuntimeError(f"Safety check failed: {joint_name}")
-        controller.set_position_deg(joint_name, deg, speed=MOVE_SPEED)
-        time.sleep(0.15)
-    time.sleep(SETTLE_S)
+    """Berilgan pose'dagi barcha jointlarni (gripperdan tashqari, agar exclude
+    berilmasa) shu holatga harakatlantiradi va HAQIQATAN yetib borgunicha kutadi."""
+    controller.move_to(pose, speed=MOVE_SPEED, exclude=exclude, tolerance_deg=3.0, timeout_s=6.0)
+    time.sleep(0.3)  # servoning tebranishi to'liq tinchishi uchun qo'shimcha qisqa pauza
 
 
 def find_object(camera: Camera, attempts: int = 15, delay_s: float = 0.2):
@@ -90,7 +85,7 @@ def find_object(camera: Camera, attempts: int = 15, delay_s: float = 0.2):
     (bitta kadr shovqinli bo'lishi mumkin - bir necha kadr o'rtachasi yaxshiroq)."""
     for _ in range(attempts):
         frame = camera.get_frame()
-        found, uv, mask = detect_red_object(frame)
+        found, uv, mask = detect_blue_object(frame)
         cv2.imshow("RoboLab AI - Vision Pick&Place", frame)
         cv2.waitKey(1)
         if found:
@@ -136,13 +131,18 @@ def run_vision_pick_and_place(controller: JointController, poses: dict, calibrat
             )
             return False
 
-    # MUHIM: kalibrlash 'approach_pick' (yuqori, xavfsiz) balandlikda avtonom
-    # skanerlash orqali olingan - shuning uchun hisoblangan (pan, lift) approach
-    # balandligini ifodalaydi. Pastga tushish (pick) uchun shu farqni ayiramiz.
+    # MUHIM: kalibrlash qaysi balandlikda (base_pose) qilinganiga qarab,
+    # hisoblangan (pan, lift) approach yoki pick balandligini ifodalaydi -
+    # ikkalasi ham to'g'ri hisoblanishi kerak.
     lift_offset = poses["approach_pick"]["shoulder_lift"] - poses["pick"]["shoulder_lift"]
+    base_pose = calibration.get("base_pose", "approach_pick")
 
-    vision_approach = build_vision_pose(poses["approach_pick"], pan, lift)
-    vision_pick = build_vision_pose(poses["pick"], pan, lift - lift_offset)
+    if base_pose == "pick":
+        vision_pick = build_vision_pose(poses["pick"], pan, lift)
+        vision_approach = build_vision_pose(poses["approach_pick"], pan, lift + lift_offset)
+    else:
+        vision_approach = build_vision_pose(poses["approach_pick"], pan, lift)
+        vision_pick = build_vision_pose(poses["pick"], pan, lift - lift_offset)
 
     logger.info("--- vision_approach ---")
     move_to_pose(controller, vision_approach, exclude=[GRIPPER_JOINT])
@@ -167,6 +167,7 @@ def run_vision_pick_and_place(controller: JointController, poses: dict, calibrat
     logger.info("--- ko'tarilish va home ---")
     move_to_pose(controller, poses["approach_place"], exclude=[GRIPPER_JOINT])
     go_home(controller)
+    gripper.close()  # yakunda gripper yopiq holatda qoladi
 
     logger.info("=== VISION PICK & PLACE yakunlandi: holding=%s ===", holding)
     return holding
@@ -186,4 +187,6 @@ if __name__ == "__main__":
     finally:
         cv2.destroyAllWindows()
         camera.release()
-        controller.disconnect()
+        # Torque YOQILGAN qoldiriladi - robot home holatida qat'iy turadi,
+        # gravitatsiya ta'sirida "bo'shashib" sirg'alib ketmaydi.
+        controller.disconnect(release_torque=False)

@@ -38,15 +38,30 @@ class Gripper:
         self.controller.set_position_deg(GRIPPER_JOINT, self.joint.max_deg, speed=OPEN_SPEED)
         time.sleep(0.8)
 
-    def close(self, settle_s: float = 1.0) -> bool:
+    def close(self, timeout_s: float = 3.0) -> bool:
         """
-        Gripperni yopadi va yopilgandan keyin yuklamani tekshirib,
-        biror narsa ushlanganini (yoki yo'qligini) aniqlaydi.
-        Qaytaradi: True - narsa ushlangan (deb taxmin qilinadi), False - bo'sh yopildi.
+        Gripperni yopadi va HARAKAT TO'LIQ TO'XTAGUNICHA kutadi (predmetni
+        ushlaganda to'liq yopiq holatga yetib bormasligi mumkin - shuning
+        uchun "maqsadga yetish" emas, "harakat to'xtashi" kutiladi).
+
+        MUHIM: to'xtagandan keyin servo hali ham asl maqsadga (to'liq yopiq
+        holat) qarab kuch ishlatishda davom etadi, garchi pozitsiya
+        o'zgarmasa ham - bu predmetni keraksiz ezadi va servoni behuda
+        qizdiradi ("g'ichirlash"). Shuning uchun to'xtagandan so'ng JORIY
+        pozitsiyani yangi maqsad qilib qayta yuboramiz - bu servoga
+        zo'riqishni to'xtatib, shu yerda "tinch turishni" buyuradi.
         """
         logger.info("Gripper yopilmoqda")
         self.controller.set_position_deg(GRIPPER_JOINT, self.joint.min_deg, speed=CLOSE_SPEED)
-        time.sleep(settle_s)
+        time.sleep(0.2)  # servo harakatni boshlashi uchun minimal boshlang'ich pauza
+        self.controller.wait_until_stopped(GRIPPER_JOINT, timeout_s=timeout_s)
+
+        # Zo'riqishni to'xtatish: joriy pozitsiyani yangi maqsad qilib beramiz
+        actual_deg = self.controller.get_position_deg(GRIPPER_JOINT)
+        self.controller.set_position_deg(GRIPPER_JOINT, actual_deg, speed=CLOSE_SPEED)
+        logger.info("Gripper zo'riqishi to'xtatildi (joriy pozitsiyada ushlab turibdi)")
+
+        time.sleep(0.2)  # yuklama qiymati barqarorlashishi uchun
         return self.is_holding()
 
     def is_holding(self) -> bool:

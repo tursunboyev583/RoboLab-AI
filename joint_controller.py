@@ -18,6 +18,7 @@ ni ko'rsatsa - demak haqiqiy max_tick = 4096+315 = 4411).
 """
 
 import logging
+import time
 import yaml
 
 from servo_driver import ServoDriver, TICKS_PER_REV, ServoDriverError
@@ -95,14 +96,24 @@ class JointController:
             len(self.joints), self.torque_limit_percent,
         )
 
-    def disconnect(self) -> None:
+    def disconnect(self, release_torque: bool = True) -> None:
+        """
+        release_torque=True (default): barcha servolarning torque'ini
+        o'chirib, keyin portni yopadi (odatiy, xavfsiz - masalan uzoq vaqt
+        ishlatilmaydigan holatlar uchun).
+
+        release_torque=False: torque YOQILGAN qoladi - robot joriy
+        pozitsiyada (masalan home) qat'iy turadi, gravitatsiya ta'sirida
+        "bo'shashib" sirg'alib ketmaydi. Demo/namoyish oxirida foydali.
+        """
         if not self.driver._connected:
             return
-        for joint in self.joints.values():
-            try:
-                self.driver.torque_enable(joint.id, False)
-            except ServoDriverError:
-                pass
+        if release_torque:
+            for joint in self.joints.values():
+                try:
+                    self.driver.torque_enable(joint.id, False)
+                except ServoDriverError:
+                    pass
         self.driver.disconnect()
 
     def get_position_deg(self, name: str) -> float:
@@ -120,6 +131,92 @@ class JointController:
         tick = joint.deg_to_tick(safe_deg)
         self.driver.write_position_tick(joint.id, tick, speed=speed)
         logger.info("%s -> %.1f grad (tick=%d)", name, safe_deg, tick)
+
+    def wait_until_stopped(self, name: str, timeout_s: float = 3.0,
+                            stable_reads_required: int = 3, movement_threshold_deg: float = 0.5) -> None:
+        """
+        Faqat joint HARAKATI to'xtaguncha kutadi - maqsadga aniq yetishni
+        talab qilmaydi. Bu ayniqsa GRIPPER uchun muhim: predmetni ushlaganda
+        u to'liq yopiq holatga (min_deg) yetib bormaydi, chunki predmetning
+        o'zi to'sqinlik qiladi - servo shunchaki "to'xtab qoladi" (aynan shu
+        ushlash signali). move_to() esa aniq maqsadga yetishni talab qilgani
+        uchun bunday holatda hech qachon "tugadi" demaydi.
+        """
+        stable_count = 0
+        last_pos = None
+        start = time.time()
+        while time.time() - start < timeout_s:
+            actual = self.get_position_deg(name)
+            if last_pos is not None and abs(actual - last_pos) <= movement_threshold_deg:
+                stable_count += 1
+            else:
+                stable_count = 0
+            last_pos = actual
+            if stable_count >= stable_reads_required:
+                logger.info("%s: harakat to'xtadi (%.1fs)", name, time.time() - start)
+                return
+            time.sleep(0.1)
+        logger.warning("%s: TIMEOUT - %.1fs ichida harakat to'xtagani aniqlanmadi", name, timeout_s)
+
+    def move_to(self, targets: dict, speed: int = 250, exclude: list = None,
+                tolerance_deg: float = 3.0, timeout_s: float = 6.0,
+                stable_reads_required: int = 3) -> None:
+        """
+        Bir nechta jointni bir vaqtda maqsadli pozitsiyaga yuboradi va
+        HAQIQATAN TO'XTAGUNICHA kutadi.
+
+        Shunchaki "maqsadga yaqin" bo'lish yetarli emas - servo inersiya
+        bilan hali harakatlanayotib ham vaqtincha tolerantlik ichiga tushib
+        qolishi mumkin. Shuning uchun bu yerda ikkita shart bir vaqtda
+        tekshiriladi:
+          1) joriy pozitsiya maqsaddan tolerance_deg ichida
+          2) pozitsiya ketma-ket bir necha o'lchovda deyarli o'zgarmagan
+             (haqiqatan to'xtagan, shunchaki "o'tib ketayotgan" emas)
+        """
+        exclude = exclude or []
+        pending = {}
+        for name, deg in targets.items():
+            if name in exclude:
+                continue
+            if not self.check_health(name):
+                raise RuntimeError(f"Safety check failed: {name}")
+            joint = self.joints[name]
+            safe_deg = joint.clamp(deg)
+            self.set_position_deg(name, deg, speed=speed)
+            pending[name] = safe_deg
+            time.sleep(0.15)  # jointlar orasida qisqa pauza (buyruq yuborishda)
+
+        stable_count = {name: 0 for name in pending}
+        last_pos = {name: None for name in pending}
+
+        start = time.time()
+        while time.time() - start < timeout_s:
+            all_stable = True
+            for name, target_deg in pending.items():
+                actual = self.get_position_deg(name)
+                near_target = abs(actual - target_deg) <= tolerance_deg
+                barely_moved = (
+                    last_pos[name] is not None and abs(actual - last_pos[name]) <= 0.5
+                )
+                last_pos[name] = actual
+
+                if near_target and barely_moved:
+                    stable_count[name] += 1
+                else:
+                    stable_count[name] = 0
+
+                if stable_count[name] < stable_reads_required:
+                    all_stable = False
+
+            if all_stable:
+                logger.info("Barcha jointlar to'liq to'xtadi (%.1fs)", time.time() - start)
+                return
+            time.sleep(0.1)
+
+        logger.warning(
+            "TIMEOUT: %.1fs ichida barcha jointlar to'liq to'xtamadi - baribir davom etiladi",
+            timeout_s
+        )
 
     def check_health(self, name: str, max_temp_c: int = 65) -> bool:
         """Harakatdan oldin/keyin xavfsizlik tekshiruvi (Safety Agent'ning boshlang'ich shakli)."""

@@ -13,7 +13,7 @@ Tugmalar: Q yoki ESC - chiqish
 import cv2
 import numpy as np
 
-from camera import Camera, detect_red_object, RED_HSV_LOWER_1, RED_HSV_UPPER_1, RED_HSV_LOWER_2, RED_HSV_UPPER_2
+from camera import Camera, detect_red_object, detect_blue_object
 
 clicked_hsv = None
 
@@ -43,15 +43,20 @@ def main():
 
             cv2.setMouseCallback("Original (bosing - HSV ko'rish uchun)", on_mouse, hsv)
 
-            found, uv, mask = detect_red_object(frame)
+            found_red, uv_red, mask_red = detect_red_object(frame)
+            found_blue, uv_blue, mask_blue = detect_blue_object(frame)
 
             display = frame.copy()
-            if found:
-                cv2.circle(display, uv, 10, (0, 255, 0), 2)
-                cv2.putText(display, "TOPILDI", (uv[0] + 12, uv[1]),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            else:
-                cv2.putText(display, "TOPILMADI", (10, 30),
+            if found_red:
+                cv2.circle(display, uv_red, 10, (0, 0, 255), 2)
+                cv2.putText(display, "GRIPPER (qizil)", (uv_red[0] + 12, uv_red[1]),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            if found_blue:
+                cv2.circle(display, uv_blue, 10, (255, 0, 0), 2)
+                cv2.putText(display, "PREDMET (ko'k)", (uv_blue[0] + 12, uv_blue[1]),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            if not found_red and not found_blue:
+                cv2.putText(display, "HECH NARSA TOPILMADI", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
             if clicked_hsv:
@@ -59,7 +64,8 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
             cv2.imshow("Original (bosing - HSV ko'rish uchun)", display)
-            cv2.imshow("Mask (nima 'qizil' deb topilmoqda)", mask)
+            cv2.imshow("Mask (nima 'qizil' deb topilmoqda)", mask_red)
+            cv2.imshow("Mask (nima 'ko'k' deb topilmoqda)", mask_blue)
 
             key = cv2.waitKey(30) & 0xFF
             if key in (ord('q'), ord('Q'), 27):
