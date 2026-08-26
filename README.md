@@ -1,93 +1,220 @@
-# RoboLab AI — Kun 1: Servo Konfiguratsiyasi, Home Position, Motion Test
-## (Windows uchun yo'riqnoma)
+# RoboLab AI
 
-## O'rnatish (PowerShell)
+**AI-Powered Intelligent Laboratory Robotics Platform**
+
+Laboratoriyalarda takroriy va ko'p vaqt talab qiladigan qo'l ishlarini (namunalarni aniqlash, ushlash, joylashtirish) sun'iy intellekt asosidagi robot-manipulyator yordamida avtomatlashtiruvchi DeepTech platforma.
+
+---
+
+## Muammo
+
+Laboratoriya xodimlari kunlik ish vaqtining sezilarli qismini namunalarni qo'lda tashish, saralash va joylashtirishga sarflaydi — bu ham vaqt yo'qotish, ham inson xatosi ehtimolini oshiradi.
+
+## Yechim
+
+RoboLab AI depth (chuqurlik) kamerasi orqali stol yuzasidagi obyektni real vaqtda **uch o'lchamda** (piksel + masofa) aniqlaydi, uning koordinatasini robot burchaklariga aylantiradi, xavfsiz trayektoriya bilan yaqinlashib uni ushlaydi va belgilangan joyga ko'chiradi — bularning barchasi inson aralashuvisiz, avtonom tarzda.
+
+---
+
+## MVP demo sinariysi
+
+```
+Operator
+  |
+START
+  |
+Camera detects object (RGB + depth)
+  |
+Robot plans motion
+  |
+Pick
+  |
+Place
+  |
+Dashboard shows Completed
+```
+
+---
+
+## Arxitektura
+
+```
+┌──────────────────────────────────────────────┐
+│  Task Layer (vision_pick_and_place_3d.py)     │
+│  Kamera -> 3D koordinata -> pick & place      │
+├──────────────────────────────────────────────┤
+│  Calibration Layer                            │
+│  (piksel u,v + chuqurlik z) -> robot burchagi │
+│  Avtomatik grid YOKI interaktiv (sichqoncha   │
+│  bilan hudud belgilash) rejimi                │
+├──────────────────────────────────────────────┤
+│  Depth Layer (depth_camera.py)                │
+│  OAK-D Lite: RGB + Stereo Depth (mm)          │
+│  depthai_sdk (v2 API) orqali                  │
+├──────────────────────────────────────────────┤
+│  Vision Layer (camera.py)                     │
+│  Obyekt aniqlash (HSV rang segmentatsiyasi)   │
+├──────────────────────────────────────────────┤
+│  Pose Library (poses.yaml)                    │
+│  Nomlangan joint-space holatlar               │
+│  ("teach-by-demonstration")                   │
+├──────────────────────────────────────────────┤
+│  Gripper Controller (gripper.py)              │
+│  open() / close() / is_holding()              │
+│  Force-sensorsiz grasp aniqlash               │
+│  (servo "Present Load" registri orqali)       │
+├──────────────────────────────────────────────┤
+│  Joint Controller (joint_controller.py)       │
+│  Gradus <-> tick konversiya, xavfsizlik       │
+│  limitlar, torque limit, harakat-tugash       │
+│  kutish (wait_until_stopped)                  │
+├──────────────────────────────────────────────┤
+│  Servo Driver (servo_driver.py)               │
+│  Feetech STS-3215 past darajadagi SDK         │
+└──────────────────────────────────────────────┘
+```
+
+Har bir qatlam alohida - kelajakda harakat rejalashtirish ROS 2 / MoveIt 2 ga
+almashtirilganda, yuqori qatlamlar o'zgarishsiz qoladi.
+
+---
+
+## Hardware
+
+| Komponent | Model |
+|---|---|
+| Manipulyator | SO-ARM101 (6 DOF) |
+| Servolar | STS-3215 C018 |
+| Boshqaruv kompyuteri | Acer Aspire A515-58P (vaqtincha) |
+| Kamera | OAK-D Lite (RGB + Stereo Depth, Luxonis) |
+
+## Dasturiy stack
+
+Python 3.11, OpenCV, NumPy, PyYAML, Feetech Servo SDK (`feetech-servo-sdk`),
+`depthai-sdk` 1.14.0 + `depthai` 2.29.0.0 (OAK-D Lite uchun)
+
+Kelajakda: ROS 2 Jazzy, MoveIt 2, FastAPI, React, PostgreSQL, Docker (to'liq
+stack loyihaning texnik hujjatida keltirilgan).
+
+---
+
+## O'rnatish
 
 ```powershell
-pip install feetech-servo-sdk pyyaml
+pip install -r requirements.txt
+pip install --force-reinstall depthai==2.29.0.0
 ```
 
-## Fayllar tuzilishi
+Ikkinchi buyruq **alohida, birinchisidan keyin** ishga tushirilishi shart —
+`depthai-sdk` o'z ehtiyojiga ko'ra `depthai`ni boshqa versiyaga ko'tarib
+qo'yishi mumkin.
 
-```
-robolab_day1\
-├── config\
-│   └── joint_limits.yaml     # Har bir joint uchun ID, limit, home holat, COM port
-├── servo_driver.py           # Driver Layer - Feetech SDK wrapper
-├── joint_controller.py       # Abstraction Layer - gradus/tick konversiya, limitlar
-├── home_position.py          # Home holatga qaytarish
-├── motion_test.py            # Har bir joint uchun smoke test
-├── calibration_helper.py     # ID skanerlash va qo'lda limit topish
-└── motion.log                # Avtomatik yaratiladigan jurnal fayli
-```
+`config/joint_limits.yaml` faylida to'g'ri COM portni ko'rsating (Device
+Manager orqali aniqlash mumkin).
 
-## Ishga tushirish tartibi
+---
 
-### 1-qadam: Papkaga o'tish
+## Ishga tushirish
+
+### 1. Kamerani tekshirish
+
 ```powershell
-cd $HOME\Downloads\robolab_day1
+python test_oak_camera.py     # OAK-D Lite: RGB + chap + o'ng + depth oynalari
 ```
-(Agar boshqa joyga saqlagan bo'lsangiz, o'sha to'liq yo'lni yozing, masalan `cd C:\Users\Foydalanuvchi\Desktop\robolab_day1`)
 
-### 2-qadam: COM portni tekshirish
+### 2. Asosiy harakat testi
+
 ```powershell
-[System.IO.Ports.SerialPort]::getportnames()
+python home_position.py       # Manipulyatorni xavfsiz boshlang'ich holatga qaytaradi
+python motion_test.py         # Har bir joint uchun smoke test
+python test_gripper.py        # Gripperni ochish/yopish/ushlash sinovi
 ```
-Yoki Device Manager → "Ports (COM & LPT)" orqali.
-Hozircha `config\joint_limits.yaml` faylida `port: "COM5"` deb o'rnatilgan —
-agar sizning portingiz boshqacha bo'lsa, shu faylni oching va o'zgartiring.
 
-### 3-qadam: ID va limitlarni kalibrlash (birinchi marta)
+### 3. Qo'lda boshqarish (klaviatura)
+
 ```powershell
-python calibration_helper.py
+python teleop_keyboard.py     # Barcha jointlarni klaviatura orqali sinash
 ```
-Bu skript avval barcha ulangan servo ID'larini topadi, so'ng tanlangan
-joint uchun torque'ni o'chirib, qo'lda aylantirish orqali haqiqiy
-min/max burchaklarni terminaldan kuzatish imkonini beradi.
-Topilgan qiymatlarni `config\joint_limits.yaml` ga yozib qo'ying.
 
-### 4-qadam: Home Position
+### 4. Pozitsiyalarni "o'rgatish" (teach-by-demonstration)
+
 ```powershell
-python home_position.py
+python record_pose.py         # Torque o'chirilgan holda qo'lda pozitsiya yozish
+python jog_pose.py            # Torque yoqilgan holda nozik moslashtirish
 ```
-Barcha jointlar xavfsiz, sekin tezlikda 0 (home) holatga qaytadi.
 
-### 5-qadam: Motion Test
+### 5. Statik Pick & Place (qo'lda yozilgan pozitsiyalar bilan)
+
 ```powershell
-python motion_test.py
+python pick_and_place.py
 ```
-Har bir joint navbat bilan +15 gradus siljiydi, so'ng home'ga qaytadi.
-Natija konsolda va `motion.log` faylida ko'rinadi.
 
-## Windows uchun eslatmalar
+### 6. Kamera bilan avtonom 3D Pick & Place
 
-- Agar `python` buyrug'i "not recognized" desa, `py` dan foydalaning:
-  ```powershell
-  py calibration_helper.py
-  ```
-- Agar portni ochishda "Access is denied" xatosi chiqsa — boshqa dastur
-  (Arduino IDE, boshqa terminal) shu COM portni band qilib turgan bo'lishi
-  mumkin. Barcha boshqa portga ulanuvchi dasturlarni yoping.
-- Windows Defender/Antivirus ba'zan yangi `.py` skriptlarni birinchi marta
-  ishga tushirishda sekinlashtirishi mumkin — bu normal holat.
+```powershell
+python calibrate_vision_auto_3d.py        # Belgilangan diapazonda avtomatik grid kalibrlash
+# YOKI
+python calibrate_vision_interactive.py    # Kamera oynasida sichqoncha bilan
+                                            # hudud belgilab, o'sha hududda kalibrlash
 
-## Muvaffaqiyat mezoni (bugungi kun uchun)
+python vision_pick_and_place_3d.py        # To'liq avtonom: 3D (piksel+chuqurlik)
+                                            # asosida topib, ushlab, qo'yadi
+```
 
-- [ ] Barcha 6 ta servo ID orqali javob beradi (`ping` muvaffaqiyatli)
-- [ ] `joint_limits.yaml` haqiqiy mexanik limitlar bilan to'ldirilgan
-- [ ] `home_position.py` xatosiz ishlaydi
-- [ ] `motion_test.py` da barcha jointlar "OK" natija beradi
-- [ ] `motion.log` faylida harakatlar tarixi yozilgan
+### Yordamchi vositalar
 
-## Ertangi kun (3-avgust) uchun poydevor
+```powershell
+python debug_camera.py        # HSV rang chegaralarini sozlash uchun
+python diagnose_id2.py        # Bitta servo bilan aloqa barqarorligini tekshirish
+```
 
-Bugun qurilgan `JointController` klassi ertaga Gripper va Pick&Place
-logikasi uchun asosiy interfeys bo'ladi — yangi klass yozish shart emas,
-faqat `motion_test.py` o'rniga `pick_and_place.py` yoziladi va xuddi
-shu `set_position_deg()` metodidan foydalaniladi.
+---
 
-## Xavfsizlik eslatmasi
+## Xavfsizlik va ishonchlilik
 
-`torque_limit_percent: 50` — bu bosqichda ataylab past qo'yilgan.
-Barcha jointlar ishonchli test qilingandan so'ng, Pick&Place
-bosqichida (3-avgust) ehtiyotkorlik bilan oshiriladi.
+- Har bir servo uchun dasturiy torque limit va burchak chegaralari
+- Harakatdan oldin harorat tekshiruvi (`check_health`)
+- Force-sensorsiz grasp aniqlash (Present Load registri)
+- Ekstrapolyatsiya himoyasi - kalibrlash diapazonidan tashqari nuqtalarga ishonchsiz harakat qilinmaydi
+- Harakat buyrug'i haqiqatan bajarilib (servo to'xtab) bo'lgunicha kutiladi
+  (`wait_until_stopped`) - navbatdagi buyruq yoki uzilish muddatidan oldin
+  yubormaydi
+- Gripper yopilish vaqti to'liq masofani bosib o'tishga yetarli (o'lchangan
+  tezlik asosida hisoblangan timeout) - vaqtidan oldin "muzlab qolish"ning
+  oldi olingan
+- **Texnik eslatma:** OAK-D Lite'ning ba'zi kamera kombinatsiyalarida xom
+  DepthAI pipeline API'si beqaror ishlashi aniqlangan; shu sabab loyiha
+  yuqori darajadagi `depthai_sdk` kutubxonasiga o'tkazildi, bu barqarorlikni
+  to'liq tikladi
+
+---
+
+## Roadmap
+
+- [x] Servo konfiguratsiyasi va xavfsiz harakat qatlami
+- [x] Teach-by-demonstration pozitsiya kutubxonasi
+- [x] Statik Pick & Place
+- [x] Rang bo'yicha obyekt aniqlash va avtonom hand-eye kalibrlash
+- [x] Avtonom Vision Pick & Place (MVP)
+- [x] Depth kamera (OAK-D Lite) integratsiyasi va 3D (piksel + chuqurlik)
+      asosidagi kalibratsiya
+- [x] Interaktiv (sichqoncha bilan hudud belgilash) kalibratsiya vositasi
+- [ ] YOLO asosida murakkab obyektlarni aniqlash
+- [ ] To'liq 3D Inverse Kinematics (hozir chiziqli pan/lift regressiya
+      ishlatiladi, to'liq erkin 6D IK emas)
+- [ ] ROS 2 / MoveIt 2 integratsiyasi
+- [ ] Ovozli buyruqlar (Whisper, o'zbek tili)
+- [ ] AI Agent arxitekturasi (Executive, Vision, Planning, Safety, Memory agentlari)
+
+---
+
+## Biznes modeli
+
+Robot sotish · Robotics as a Service (RaaS) · AI Subscription · LIMS/ERP
+integratsiyasi · Maintenance · Training · Custom AI Development
+
+---
+
+## Litsenziya
+
+TBD
